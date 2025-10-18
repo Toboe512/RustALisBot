@@ -1,10 +1,16 @@
+
+use std::thread;
+use std::time::Duration;
 use log::{debug, error, info};
 use serde_json::{Value};
 use reqwest::{Error, Method, Response, StatusCode};
+use crate::errors::errors::log_err;
 use crate::clients::telegram::types::UpdatesResponse;
 
 pub const GET_UPDATES_METHOD: &str = "getUpdates";
 const SENS_MESSAGE_METHOD: &str = "sendMessage";
+
+const RETRY_PERIOD: Duration = Duration::from_secs(3);
 
 pub struct TgClient {
     host: String,
@@ -21,78 +27,54 @@ impl TgClient {
         }
     }
 
-    pub async fn updates(&mut self, offset: i32, limit: i32) -> Result<Option<UpdatesResponse>, String> {
+    pub async fn updates(&self, offset: i32, limit: i32) -> Result<UpdatesResponse, String> {
         let err = String::from("Can't do updates");
         let query = new_update_query(offset, limit);
 
         let response = self.do_request(Method::GET, GET_UPDATES_METHOD, query, Value::Null)
-            .await;
+            .await.map_err(|e| {
+            log_err(&err, e)
+        })?;
 
-        match response {
-            Err(e) => {
-                error!("{}: {}", err, e);
-                return Err(format!("{}: {}", err, e));
-            }
-            Ok(..) => {}
+        if response.status() != StatusCode::OK {
+            error!("{}: Status: {}", err,  response.status());
+            // Приостановить поток на RETRY_PERIOD сек (период ретрая)
+            thread::sleep(RETRY_PERIOD);
+            return Err(format!("{}: Status: {}", err,  response.status()))
         }
-
-        let response = response.unwrap();
-
-        match response {
-            None => {
-                error!("{}: NoneUpdatesResponse", err);
-                return Err(format!("{}: NoneUpdatesResponse", err));
-            }
-            Some(ref r) => {
-                if r.status() != StatusCode::OK {
-                    error!("{}: Status: {}", err,  r.status());
-                   // TODO Нужен??? return Err(format!("{}: Status: {}", err,  r.status()));
-                }
-            }
-        }
-
-        let response = response.unwrap().json::<UpdatesResponse>().await;
-
-        match response {
-            Ok(r) => { Ok(Some(r)) }
-            Err(e) => {
-                error!("{}: {}", err, e);
-                Err(format!("{}: {}", err, e))
-            }
-        }
+        response.json::<UpdatesResponse>().await.map_err(|e| {
+            log_err(&err, e)
+        })
     }
 
-    pub async fn send_message(&mut self, chat_id: i32, text: &str) -> Result<(), String> {
+    pub async fn send_message(&self, chat_id: i32, text: &str) -> Result<(), String> {
         let err = String::from("Can't sand message");
-
         let query = new_message_query(chat_id, text);
 
-        let res = self.do_request(Method::POST, SENS_MESSAGE_METHOD, query, Value::Null)
-            .await;
-
-        match res {
-            Ok(..) => {
+        self.do_request(Method::POST, SENS_MESSAGE_METHOD, query, Value::Null)
+            .await
+            .map_err(|e| {
+                log_err(&err, e)
+            })
+            .map(|_| {
                 info!("Sand message: \"\"\" {} \"\"\" in chat id: {}", text, chat_id);
                 Ok(())
-            },
-            Err(e) => {
-                error!("{}: {}", err, e);
-                Err(format!("{}: {}", err, e))
-            }
-        }
+            })?
     }
 
-    async fn do_request(&mut self, http_method: Method, method: &str, query: String, body: Value) -> Result<Option<Response>, Error> {
+    async fn do_request(&self, http_method: Method, method: &str, query: String, body: Value) -> Result<Response, Error> {
         let url = new_url(&*self.host, &self.base_path, method, query);
 
-        //debug!("Do request URL: {} Body: {}", url, body);
+        debug!("Do request URL: {} Body: {}", &url, &body);
 
         let response = self.client
-            .request(http_method, url)
+            .request(http_method, &url)
             .json(&body)
             .header("Content-Type", "application/json")
             .send().await?;
-        Ok(Some(response))
+
+        debug!("Do response URL: {} Response: {:?}", &url,  &response);
+        Ok(response)
     }
 }
 

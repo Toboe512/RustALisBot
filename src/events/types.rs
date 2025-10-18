@@ -17,4 +17,5 @@ pub struct Event {
 pub struct Meta {
     pub chat_id: i32,
     pub user_name: String,
+    pub image_id: Option<String>,
 }

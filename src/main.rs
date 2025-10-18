@@ -14,6 +14,7 @@ mod clients;
 mod events;
 mod consumer;
 mod utils;
+mod errors;
 
 const TG_BOT_HOST: &str = "api.telegram.org";
 const BATCH_SIZE: i32 = 100;
