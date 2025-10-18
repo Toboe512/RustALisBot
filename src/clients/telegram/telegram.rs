@@ -1,17 +1,9 @@
-use serde_json::Value;
-use crate::clients::telegram::types::BaseResult;
-
-use crate::clients::telegram::types;
-use crate::TG_BOT_HOST;
-
-use reqwest::{Error, Method};
-use crate::UpdatesResponse;
+use serde_json::{Value};
+use reqwest::{Error, Method, Response};
+use crate::clients::telegram::types::UpdatesResponse;
 
 pub const GET_UPDATES_METHOD: &str = "getUpdates";
 const SENS_MESSAGE_METHOD: &str = "sendMessage";
-const SEND_PHOTO: &str = "sendPhoto";
-const SET_MY_COMMANDS: &str = "setMyCommands";
-
 
 pub struct TgClient {
     host: String,
@@ -20,43 +12,84 @@ pub struct TgClient {
 }
 
 impl TgClient {
-    pub fn of(host: String, token: String) -> Result<Self, Box<dyn std::error::Error>> {
-        Ok(TgClient {
+    pub fn of(host: String, token: String) -> Self {
+        TgClient {
             host,
             base_path: new_base_path(token),
             client: reqwest::Client::new(),
-        })
+        }
     }
 
-    pub async fn updates(&mut self, offset: i32, limit: i32) -> Result<Option<UpdatesResponse>, Error> {
-        let q = new_query(offset, limit);
+    pub async fn updates(&mut self, offset: i32, limit: i32) -> Result<Option<UpdatesResponse>, String> {
+        let err = String::from("can't do updates");
+        let query = new_update_query(offset, limit);
 
-        self.do_request(Method::GET, GET_UPDATES_METHOD, q, Value::Null)
-            .await
+        let response = self.do_request(Method::GET, GET_UPDATES_METHOD, query, Value::Null)
+            .await;
+
+        match response {
+            Err(e) => { return Err(format!("{}: {}", err, e)); }
+            Ok(..) => {}
+        }
+
+        let response = response.unwrap();
+
+        match response {
+            None => { return Err(format!("{}: NoneUpdatesResponse", err)); }
+            Some(..) => {}
+        }
+
+        let response = response.unwrap().json::<UpdatesResponse>().await;
+
+        match response {
+            Ok(r) => { Ok(Some(r)) }
+            Err(e) => { Err(format!("{}: {}", err, e)) }
+        }
     }
 
+    pub async fn send_message(&mut self, chat_id: i32, text: &str) -> Result<(), String> {
+        let err = String::from("can't sand message");
 
-    pub async fn do_request(&mut self, http_method: Method, method: &str, query: String, body: Value) -> Result<Option<UpdatesResponse>, Error> {
-        let url = new_url(&self.base_path, method, query);
+        let query = new_message_query(chat_id, text);
+
+        let res = self.do_request(Method::POST, SENS_MESSAGE_METHOD, query, Value::Null)
+            .await;
+
+        match res {
+            Ok(..) => Ok(()),
+            Err(e) => {
+                Err(format!("{}: {}", err, e))
+            }
+        }
+    }
+
+    async fn do_request(&mut self, http_method: Method, method: &str, query: String, body: Value) -> Result<Option<Response>, Error> {
+        let url = new_url(&*self.host, &self.base_path, method, query);
+
+        //println!("Запрос на do request: {}", url); //TODO добавить дебаг
 
         let response = self.client
             .request(http_method, url)
+            .json(&body)
             .header("Content-Type", "application/json")
-            .send().await?
-            .json::<UpdatesResponse>().await?;
+            .send().await?;
         Ok(Some(response))
     }
 }
 
-pub fn new_query(offset: i32, limit: i32) -> String {
+fn new_message_query(chat_id: i32, text: &str) -> String {
+    format!("?chat_id={}&text={}", chat_id, text)
+}
+
+fn new_update_query(offset: i32, limit: i32) -> String {
     format!("?offset={}&limit={}", offset, limit)
 }
 
-pub fn new_url(base_path: &str, method: &str, query: String) -> String {
-    format!("https://{}/{}/{}{}", TG_BOT_HOST, base_path, method, query)
+fn new_url(host: &str, base_path: &str, method: &str, query: String) -> String {
+    format!("https://{}/{}/{}{}", host, base_path, method, query)
 }
 
-pub fn new_base_path(token: String) -> String {
+fn new_base_path(token: String) -> String {
     "bot".to_string() + &token
 }
 

@@ -1,24 +1,19 @@
-extern crate serde_json;
 extern crate reqwest;
+extern crate serde_json;
 
-use std::collections::HashMap;
 use std::env;
 use std::process::exit;
-use serde::Deserialize;
 use clients::telegram::telegram;
-use serde_json::json;
-use reqwest::{Error, Method, Url};
-use clients::telegram::types::{BaseResult, UpdatesResponse};
-use telegram::{GET_UPDATES_METHOD, new_base_path, new_query, new_url, TgClient};
+use consumer::consumer::Consumer;
+use events::processor::Processor;
+use telegram::TgClient;
 
 mod clients;
-
+mod events;
+mod consumer;
 
 const TG_BOT_HOST: &str = "api.telegram.org";
-const STORAGE_FILE_PATH: &str = "files_storage";
-const STORAGE_SQLITE_PATH: &str = "data/sqlite/storage.db";
 const BATCH_SIZE: i32 = 100;
-
 
 fn help() {
     println!("token is not specified");
@@ -27,15 +22,15 @@ fn help() {
 
 
 #[tokio::main]
-async fn main() -> Result<(), Error> {
-    let c = TgClient::of(TG_BOT_HOST.to_string(), mast_token());
+async fn main() -> Result<(), String> {
+    let client = TgClient::of(TG_BOT_HOST.to_string(), mast_token());
 
-    let result = c.unwrap()
-        .updates(0, BATCH_SIZE).await?;
+    let events_processor = Processor::of(client);
 
-    println!("Response {}", result.unwrap().ok);
+    let mut consumer = Consumer::of(events_processor, BATCH_SIZE);
 
-    Ok(())
+    consumer.start().await
+
 }
 
 fn mast_token() -> String {
