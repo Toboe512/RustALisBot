@@ -1,3 +1,5 @@
+use log::{debug, error};
+use crate::utils::consts::SPACE_STR;
 use crate::events::messages::MSG_UNKNOWN_COMMAND;
 use crate::events::messages::MSG_HELLO;
 use crate::events::types::Meta;
@@ -55,36 +57,52 @@ impl Processor {
     }
 
     pub async fn process(&mut self, event: Event) -> Result<(), String> {
-        //println!("process: {}", event.text); //TODO добавить дебаг
-        let err = String::from("can't process message unknown event type");
+        debug!("Process event: {:?}", event);
+        let err = String::from("can't process message: unknown event type");
         match event.event_type {
             EventType::Message | EventType::Image => {
                 self.process_message(event).await
             }
             _ => {
+                error!("{}", err);
                 Err(err)
             }
         }
     }
 
     pub async fn do_cmd(&mut self, text: String, chat_id: i32, username: String) -> Result<(), String> {
-        let text1 = text.trim();
-        let cmd: Vec<&str> = text1.split(" ").collect();
+        let log = String::from("Do command");
+        let cmd: Vec<&str> = text.trim().split(SPACE_STR).collect();
 
-        //TODO добавить дебаг
+        debug!("{}: {:?} in chat id: {} for username: {}", log, cmd, chat_id, username);
 
         match cmd[0] {
-            START_CMD => self.send_hello(chat_id).await,
-            HELP_CMD => self.send_hello(chat_id).await,
+            START_CMD => {
+                debug!("{}: {}", log, START_CMD);
+                self.send_hello(chat_id).await
+            },
+            HELP_CMD => {
+                debug!("{}: {}", log, HELP_CMD);
+                self.send_hello(chat_id).await
+            },
             _ => {
-                self.tg.send_message(chat_id, MSG_UNKNOWN_COMMAND).await;
+                error!("{}: UNKNOWN COMMAND", log);
+                let _ = self.tg.send_message(chat_id, MSG_UNKNOWN_COMMAND).await;
                 Err(String::from(MSG_UNKNOWN_COMMAND))
             }
         }
     }
 
     pub async fn process_message(&mut self, event: Event) -> Result<(), String> {
-        self.do_cmd(event.text, event.meta.chat_id, event.meta.user_name).await
+        match event.meta {
+            None => {
+                error!("Process message: can't get meta")
+            }
+            Some(m) => {
+                let _ = self.do_cmd(event.text, m.chat_id, m.user_name).await;
+            }
+        }
+        Ok(())
     }
 
     pub async fn send_hello(&mut self, chat_id: i32) -> Result<(), String> {
@@ -92,15 +110,28 @@ impl Processor {
     }
 }
 
+// event метод в котором по сути происходит мепинг Update в Event с заполнением структуры Meta.
 fn event(udp: Update) -> Event {
     let udp_type = fetch_type(udp.clone());
+
+    match udp_type {
+        EventType::Unknown => {
+            return Event {
+                event_type: udp_type,
+                text: fetch_text(udp.clone()),
+                meta: None,
+            };
+        }
+        _ => {}
+    }
+
     Event {
         event_type: udp_type,
         text: fetch_text(udp.clone()),
-        meta: Meta {
+        meta: Some(Meta {
             chat_id: udp.clone().message.unwrap().chat.id,
             user_name: udp.clone().message.unwrap().from.username,
-        },
+        }),
     }
 }
 

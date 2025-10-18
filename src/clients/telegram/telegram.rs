@@ -1,5 +1,6 @@
+use log::{debug, error, info};
 use serde_json::{Value};
-use reqwest::{Error, Method, Response};
+use reqwest::{Error, Method, Response, StatusCode};
 use crate::clients::telegram::types::UpdatesResponse;
 
 pub const GET_UPDATES_METHOD: &str = "getUpdates";
@@ -21,34 +22,48 @@ impl TgClient {
     }
 
     pub async fn updates(&mut self, offset: i32, limit: i32) -> Result<Option<UpdatesResponse>, String> {
-        let err = String::from("can't do updates");
+        let err = String::from("Can't do updates");
         let query = new_update_query(offset, limit);
 
         let response = self.do_request(Method::GET, GET_UPDATES_METHOD, query, Value::Null)
             .await;
 
         match response {
-            Err(e) => { return Err(format!("{}: {}", err, e)); }
+            Err(e) => {
+                error!("{}: {}", err, e);
+                return Err(format!("{}: {}", err, e));
+            }
             Ok(..) => {}
         }
 
         let response = response.unwrap();
 
         match response {
-            None => { return Err(format!("{}: NoneUpdatesResponse", err)); }
-            Some(..) => {}
+            None => {
+                error!("{}: NoneUpdatesResponse", err);
+                return Err(format!("{}: NoneUpdatesResponse", err));
+            }
+            Some(ref r) => {
+                if r.status() != StatusCode::OK {
+                    error!("{}: Status: {}", err,  r.status());
+                   // TODO Нужен??? return Err(format!("{}: Status: {}", err,  r.status()));
+                }
+            }
         }
 
         let response = response.unwrap().json::<UpdatesResponse>().await;
 
         match response {
             Ok(r) => { Ok(Some(r)) }
-            Err(e) => { Err(format!("{}: {}", err, e)) }
+            Err(e) => {
+                error!("{}: {}", err, e);
+                Err(format!("{}: {}", err, e))
+            }
         }
     }
 
     pub async fn send_message(&mut self, chat_id: i32, text: &str) -> Result<(), String> {
-        let err = String::from("can't sand message");
+        let err = String::from("Can't sand message");
 
         let query = new_message_query(chat_id, text);
 
@@ -56,8 +71,12 @@ impl TgClient {
             .await;
 
         match res {
-            Ok(..) => Ok(()),
+            Ok(..) => {
+                info!("Sand message: \"\"\" {} \"\"\" in chat id: {}", text, chat_id);
+                Ok(())
+            },
             Err(e) => {
+                error!("{}: {}", err, e);
                 Err(format!("{}: {}", err, e))
             }
         }
@@ -66,7 +85,7 @@ impl TgClient {
     async fn do_request(&mut self, http_method: Method, method: &str, query: String, body: Value) -> Result<Option<Response>, Error> {
         let url = new_url(&*self.host, &self.base_path, method, query);
 
-        //println!("Запрос на do request: {}", url); //TODO добавить дебаг
+        //debug!("Do request URL: {} Body: {}", url, body);
 
         let response = self.client
             .request(http_method, url)

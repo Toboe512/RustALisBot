@@ -1,8 +1,10 @@
 extern crate reqwest;
 extern crate serde_json;
+extern crate log;
 
 use std::env;
 use std::process::exit;
+use log::{error, info};
 use clients::telegram::telegram;
 use consumer::consumer::Consumer;
 use events::processor::Processor;
@@ -11,18 +13,23 @@ use telegram::TgClient;
 mod clients;
 mod events;
 mod consumer;
+mod utils;
 
 const TG_BOT_HOST: &str = "api.telegram.org";
 const BATCH_SIZE: i32 = 100;
 
 fn help() {
-    println!("token is not specified");
+    error!("token is not specified");
     exit(1);
 }
 
 
 #[tokio::main]
 async fn main() -> Result<(), String> {
+    // Инициализация логгера.
+    env_logger::init();
+    info!("Приложение запущено");
+
     let client = TgClient::of(TG_BOT_HOST.to_string(), mast_token());
 
     let events_processor = Processor::of(client);

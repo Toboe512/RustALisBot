@@ -3,6 +3,9 @@ use crate::events::types::Event;
 
 use std::thread;
 use std::time::Duration;
+use log::{debug, error, info};
+
+const UPDATE_PERIOD: Duration = Duration::from_secs(1);
 
 pub struct Consumer {
     processor: Processor,
@@ -18,19 +21,21 @@ impl Consumer {
     }
 
     pub async fn start(&mut self) -> Result<(), String> {
+        info!("Application started");
         loop {
             let evn = self.processor.fetch(self.batch_size).await;
             match evn {
                 Ok(..) => {
                     //TODO добавить дебаг
                     if evn.clone()?.is_empty() {
-                        thread::sleep(Duration::from_secs(1)); // Приостановить на 1 сек
+                        // Приостановить поток на UPDATE_PERIOD сек (период обновления)
+                        thread::sleep(UPDATE_PERIOD);
                         continue;
                     }
                     self.handle_events(evn.clone().unwrap()).await?
                 }
                 Err(e) => {
-                    println!("[ERR] consumer: {}", e)
+                    error!("Consumer: {}", e);
                 }
             }
         }
@@ -38,11 +43,10 @@ impl Consumer {
 
     async fn handle_events(&mut self, events: Vec<Event>) -> Result<(), String> {
         for event in events {
-            //println!("got new event: {}", event.text);//TODO добавить дебаг
-
+            debug!("Handle event: {:?}", event);
             match self.processor.process(event).await {
                 Err(e) => {
-                    println!("can't handle event: {}", e);
+                    error!("Can't handle event: {}", e);
                     continue;
                 }
                 Ok(..) => {}
