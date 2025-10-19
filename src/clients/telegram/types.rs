@@ -29,7 +29,7 @@ pub struct Update {
     pub message: Option<Message>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct Message {
     #[serde(default)]
     pub message_id: i32,
@@ -55,7 +55,7 @@ pub struct Message {
     pub caption: String,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct PhotoSize {
     #[serde(default)]
     pub file_id: String,
