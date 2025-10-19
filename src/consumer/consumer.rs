@@ -23,8 +23,8 @@ impl Consumer {
 
     pub async fn start(&mut self) -> Result<(), String> {
         info!("Application started");
+        let log = "Consumer";
         loop {
-
             match self.processor.fetch(self.batch_size).await {
                 Ok(ev) => {
                     //TODO добавить дебаг?
@@ -33,23 +33,24 @@ impl Consumer {
                         thread::sleep(UPDATE_PERIOD);
                         continue;
                     }
-                    self.handle_events(ev.clone()).await?
+                    self.handle_events(&ev).await?
                 }
                 Err(e) => {
-                    error!("Consumer: {}", e);
+                    error!("{}: {}", log, e);
                 }
             }
         }
     }
 
-    async fn handle_events(&self, events: Vec<Event>) -> Result<(), String> {
-        let log = String::from("Can't handle event");
+    async fn handle_events(&self, events: &Vec<Event>) -> Result<(), String> {
+        let log = "Can't handle event";
 
         for event in events {
             debug!("Handle event: {:?}", event);
-            self.processor.process(event).await.map_err(|e|{
-                log_err(&log, e)
-            })?;
+            let _ = self.processor
+                .process(&event)
+                .await
+                .map_err(|e| log_err(&log, e));
         }
         Ok(())
     }

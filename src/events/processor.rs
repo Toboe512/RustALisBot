@@ -27,10 +27,10 @@ impl Processor {
         }
     }
     pub async fn fetch(&mut self, limit: i32) -> Result<Vec<Event>, String> {
-        let err = String::from("can't get events");
+        let err = "can't get events";
 
         let response = self.tg.updates(self.offset, limit).await.map_err(|e| {
-            log_err(&err, e)
+            log_err(err, e)
         })?;
 
         //TODO оставлено для обработки других полей в response в будущем
@@ -41,7 +41,7 @@ impl Processor {
         if updates.is_empty() { return Ok(res_evn); }
 
         for update in &updates {
-            res_evn.push(event(update.clone()));
+            res_evn.push(event(&update));
         }
 
         self.offset = updates[updates.len() - 1].update_id + 1;
@@ -49,51 +49,49 @@ impl Processor {
         Ok(res_evn)
     }
 
-    pub async fn process(&self, event: Event) -> Result<(), String> {
+    pub async fn process(&self, event: &Event) -> Result<(), String> {
         debug!("Process event: {:?}", event);
-        let err = String::from("Can't process message");
+        let err = "Can't process message";
         match event.event_type {
             EventType::Message | EventType::Image => {
                 self.process_message(event).await
             }
             EventType::Unknown => {
-                Err(log_err(&err, "Event Type Unknown"))
+                Err(log_err(err, "Event Type Unknown"))
             }
         }
     }
 
-    pub async fn do_cmd(&self, text: String, chat_id: i32, username: String) -> Result<(), String> {
-        let log = String::from("Do command");
+    pub async fn do_cmd(&self, text: &str, chat_id: i32, username: String) -> Result<(), String> {
+        let log = "Do command";
         let cmd: Vec<&str> = text.trim().split(SPACE_STR).collect();
 
-        debug!("{}: {:?} in chat id: {} for username: {}", &log, &cmd, &chat_id, &username);
+        debug!("{}: {:?} in chat id: {} for username: {}", log, &cmd, &chat_id, &username);
 
         match cmd[0] {
             START_CMD => {
-                debug!("{}: {}", &log, START_CMD);
+                debug!("{}: {}", log, START_CMD);
                 self.send_hello(chat_id).await
             }
             HELP_CMD => {
-                debug!("{}: {}", &log, HELP_CMD);
+                debug!("{}: {}", log, HELP_CMD);
                 self.send_hello(chat_id).await
             }
             _ => {
                 let _ = self.tg.send_message(chat_id, MSG_UNKNOWN_COMMAND).await;
-                error!("{}: UNKNOWN COMMAND", &log);
-                Err(format!("{}: UNKNOWN COMMAND", &log))
+                Err(log_err(log, "UNKNOWN COMMAND"))
             }
         }
     }
 
-    pub async fn process_message(&self, event: Event) -> Result<(), String> {
-        let log = String::from("Process message");
+    pub async fn process_message(&self, event: &Event) -> Result<(), String> {
+        let log = "Process message";
 
-        if event.meta.map(async |m| {
-            let _ = self.do_cmd(event.text, m.chat_id, m.user_name).await;
-        }).is_none() {
-            error!( "{}: can't get meta", log);
-            return Err(log_err(&log, "can't get meta"));
-        }
+        let meta = event.meta
+            .clone()
+            .ok_or_else(|| log_err(log, "can't get meta"))?;
+
+        let _ = self.do_cmd(&event.text, meta.chat_id, meta.user_name).await?;
         Ok(())
     }
 
@@ -103,17 +101,17 @@ impl Processor {
 }
 
 // event метод в котором по сути происходит мепинг Update в Event с заполнением структуры Meta.
-fn event(udp: Update) -> Event {
-    let udp_type = fetch_type(udp.clone());
+fn event(udp: &Update) -> Event {
+    let udp_type = fetch_type(udp);
 
     return match udp_type {
         EventType::Message => {
             Event {
                 event_type: udp_type,
-                text: fetch_text(udp.clone()),
+                text: fetch_text(udp),
                 meta: Some(Meta {
-                    chat_id: udp.clone().message.unwrap().chat.id,
-                    user_name: udp.clone().message.unwrap().from.username,
+                    chat_id: udp.message.clone().unwrap_or_default().chat.id,
+                    user_name: udp.message.clone().unwrap_or_default().from.username,
                     image_id: None,
                 }),
             }
@@ -121,38 +119,38 @@ fn event(udp: Update) -> Event {
         EventType::Image => {
             Event {
                 event_type: udp_type,
-                text: fetch_text(udp.clone()),
+                text: fetch_text(udp),
                 meta: Some(Meta {
-                    chat_id: udp.clone().message.unwrap().chat.id,
-                    user_name: udp.clone().message.unwrap().from.username,
-                    image_id: None,//udp.clone().message.unwrap().photo[0].file_id,
+                    chat_id: udp.message.clone().unwrap_or_default().chat.id,
+                    user_name: udp.message.clone().unwrap_or_default().from.username,
+                    image_id: Some(udp.message.clone().unwrap_or_default().photo.unwrap_or_default()[0].file_id.clone()),
                 }),
             }
         }
         EventType::Unknown => {
             Event {
                 event_type: udp_type,
-                text: fetch_text(udp.clone()),
+                text: fetch_text(udp),
                 meta: None,
             }
         }
     };
 }
 
-fn fetch_text(udp: Update) -> String {
-    match fetch_type(udp.clone()) {
-        EventType::Message => udp.clone().message.unwrap().text,
-        EventType::Image => udp.clone().message.unwrap().caption,
+fn fetch_text(udp: &Update) -> String {
+    match fetch_type(udp) {
+        EventType::Message => udp.message.clone().unwrap_or_default().text,
+        EventType::Image => udp.message.clone().unwrap_or_default().caption,
         _ => String::new()
     }
 }
 
-fn fetch_type(udp: Update) -> EventType {
-    if udp.clone().message.is_none() {
+fn fetch_type(udp: &Update) -> EventType {
+    if udp.message.is_none() {
         return EventType::Unknown;
     }
 
-    let photo = udp.clone().message.unwrap().photo;
+    let photo = udp.message.clone().unwrap_or_default().photo;
 
     if photo.is_none() || photo.unwrap().is_empty() {
         return EventType::Message;
