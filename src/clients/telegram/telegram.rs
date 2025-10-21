@@ -1,15 +1,11 @@
-use std::thread;
-use std::time::Duration;
-use log::{debug, error, info};
+use log::{debug, info};
 use serde_json::{Value};
 use reqwest::{Error, Method, Response, StatusCode};
-use crate::errors::errors::log_err;
+use crate::errors::errors::{log_err, log_err3};
 use crate::clients::telegram::types::UpdatesResponse;
 
 pub const GET_UPDATES_METHOD: &str = "getUpdates";
 const SENS_MESSAGE_METHOD: &str = "sendMessage";
-
-const RETRY_PERIOD: Duration = Duration::from_secs(3);
 
 pub struct TgClient {
     host: String,
@@ -36,10 +32,7 @@ impl TgClient {
             .map_err(|e| log_err(err, e))?;
 
         if response.status() != StatusCode::OK {
-            error!("{}: Status: {}", err,  response.status());
-            // Приостановить поток на RETRY_PERIOD сек (период ретрая)
-            thread::sleep(RETRY_PERIOD);
-            return Err(format!("{}: Status: {}", err, response.status()));
+            log_err3(err, "Status", response.status());
         }
         response.json::<UpdatesResponse>().await.map_err(|e| log_err(&err, e))
     }
@@ -58,7 +51,7 @@ impl TgClient {
     async fn do_request(&self, http_method: Method, method: &str, query: &str, body: &Value) -> Result<Response, Error> {
         let url = new_url(&*self.host, &self.base_path, method, query);
 
-        // debug!("Do request URL: {} Body: {}", &url, &body);
+         debug!("Do request URL: {} Body: {}", &url, &body);
 
         let response = self.client
             .request(http_method, &url)
@@ -66,7 +59,7 @@ impl TgClient {
             .header("Content-Type", "application/json")
             .send().await?;
 
-        // debug!("Do response URL: {} Response: {:?}", &url,  &response);
+         debug!("Do response URL: {} Response: {:?}", &url,  &response);
         Ok(response)
     }
 }

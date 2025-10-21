@@ -1,10 +1,9 @@
 use crate::events::processor::Processor;
 use crate::events::types::Event;
 
-use std::thread;
-use std::time::Duration;
-use log::{debug, error, info};
 use crate::errors::errors::log_err;
+use log::{debug, error, info};
+use std::time::Duration;
 
 const UPDATE_PERIOD: Duration = Duration::from_secs(1);
 
@@ -28,17 +27,16 @@ impl Consumer {
             match self.processor.fetch(self.batch_size).await {
                 Ok(ev) => {
                     //TODO добавить дебаг?
-                    if ev.is_empty() {
-                        // Приостановить поток на UPDATE_PERIOD сек (период обновления)
-                        thread::sleep(UPDATE_PERIOD);
-                        continue;
+                    if !ev.is_empty() {
+                        self.handle_events(&ev).await?
                     }
-                    self.handle_events(&ev).await?
                 }
                 Err(e) => {
                     error!("{}: {}", log, e);
                 }
             }
+            // Приостановить поток на UPDATE_PERIOD сек (период обновления)
+            tokio::time::sleep(UPDATE_PERIOD).await;
         }
     }
 
@@ -47,7 +45,8 @@ impl Consumer {
 
         for event in events {
             debug!("Handle event: {:?}", event);
-            let _ = self.processor
+            let _ = self
+                .processor
                 .process(&event)
                 .await
                 .map_err(|e| log_err(&log, e));
@@ -55,4 +54,3 @@ impl Consumer {
         Ok(())
     }
 }
-
